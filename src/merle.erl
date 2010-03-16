@@ -43,8 +43,11 @@
 -define(RANDOM_MAX, 65535).
 -define(DEFAULT_HOST, "localhost").
 -define(DEFAULT_PORT, 11211).
--define(TCP_OPTS, [
-    binary, {packet, raw}, {nodelay, true},{reuseaddr, true}, {active, true}
+-define(TCP_OPTS_LINE, [
+    binary, {packet, line}, {nodelay, true},{reuseaddr, true}, {active, once}
+]).
+-define(TCP_OPTS_RAW, [
+    binary, {packet, raw}, {nodelay, true},{reuseaddr, true}, {active, false}
 ]).
 
 %% gen_server API
@@ -247,7 +250,7 @@ start_link(Host, Port) ->
 
 %% @private
 init([Host, Port]) ->
-    gen_tcp:connect(Host, Port, ?TCP_OPTS).
+    gen_tcp:connect(Host, Port, ?TCP_OPTS_LINE).
 
 handle_call({stop}, _From, Socket) ->
     {stop, requested_disconnect, Socket};
@@ -393,7 +396,8 @@ send_gets_cmd(Socket, Cmd) ->
 %% @doc receive function for simple responses (not containing VALUEs)
 recv_simple_reply() ->
 	receive
-	  	{tcp,_,Data} ->
+	  	{tcp, Socket, Data} ->
+        	inet:setopts(Socket, ?TCP_OPTS_LINE),
         	string:tokens(binary_to_list(Data), "\r\n");
         {error, closed} ->
   			connection_closed
@@ -405,14 +409,15 @@ recv_simple_reply() ->
 recv_complex_get_reply(Socket) ->
 	receive
 		%% For receiving get responses where the key does not exist
-		{tcp, Socket, <<"END\r\n">>} -> ["END"];
+		{tcp, Socket, <<"END\r\n">>} -> 
+            inet:setopts(Socket, ?TCP_OPTS_LINE),
+            ["END"];
 		%% For receiving get responses containing data
 		{tcp, Socket, Data} ->
 			%% Reply format <<"VALUE SOMEKEY FLAG BYTES\r\nSOMEVALUE\r\nEND\r\n">>
   			Parse = io_lib:fread("~s ~s ~u ~u\r\n", binary_to_list(Data)),
-  			{ok,[_,_,_,Bytes], ListBin} = Parse,
-  			Bin = list_to_binary(ListBin),
-  			Reply = get_data(Socket, Bin, Bytes, length(ListBin)),
+  			{ok,[_,_,_,Bytes], []} = Parse,
+  			Reply = get_data(Socket, Bytes),
   			[Reply];
   		{error, closed} ->
   			connection_closed
@@ -424,14 +429,15 @@ recv_complex_get_reply(Socket) ->
 recv_complex_gets_reply(Socket) ->
 	receive
 		%% For receiving get responses where the key does not exist
-		{tcp, Socket, <<"END\r\n">>} -> ["END"];
+		{tcp, Socket, <<"END\r\n">>} -> 
+        inet:setopts(Socket, ?TCP_OPTS_LINE),
+        ["END"];
 		%% For receiving get responses containing data
 		{tcp, Socket, Data} ->
 			%% Reply format <<"VALUE SOMEKEY FLAG BYTES\r\nSOMEVALUE\r\nEND\r\n">>
   			Parse = io_lib:fread("~s ~s ~u ~u ~u\r\n", binary_to_list(Data)),
-  			{ok,[_,_,_,Bytes,CasUniq], ListBin} = Parse,
-  			Bin = list_to_binary(ListBin),
-  			Reply = get_data(Socket, Bin, Bytes, length(ListBin)),
+  			{ok,[_,_,_,Bytes,CasUniq], []} = Parse,
+  			Reply = get_data(Socket, Bytes),
   			[CasUniq, Reply];
   		{error, closed} ->
   			connection_closed
@@ -440,15 +446,9 @@ recv_complex_gets_reply(Socket) ->
 
 %% @private
 %% @doc recieve loop to get all data
-get_data(Socket, Bin, Bytes, Len) when Len < Bytes + 7->
-    receive
-        {tcp, Socket, Data} ->
-            Combined = <<Bin/binary, Data/binary>>,
-            get_data(Socket, Combined, Bytes, size(Combined));
-     	{error, closed} ->
-  			connection_closed
-        after ?TIMEOUT -> timeout
-    end;
-get_data(_, Data, Bytes, _) ->
-	<<Bin:Bytes/binary, "\r\nEND\r\n">> = Data,
-    binary_to_term(Bin).
+get_data(Socket, Bytes) ->
+    inet:setopts(Socket, ?TCP_OPTS_RAW),
+    {ok, Data} = gen_tcp:recv(Socket, Bytes+7, ?TIMEOUT),
+    <<Value:Bytes/binary, "\r\nEND\r\n">> = Data,
+    inet:setopts(Socket, ?TCP_OPTS_LINE),
+    binary_to_term(Value).
