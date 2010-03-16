@@ -256,11 +256,11 @@ handle_call({stop}, _From, Socket) ->
     {stop, requested_disconnect, Socket};
 
 handle_call({stats}, _From, Socket) ->
-    Reply = send_generic_cmd(Socket, iolist_to_binary([<<"stats">>])),
+    Reply = send_stats_cmd(Socket, iolist_to_binary([<<"stats">>])),
     {reply, Reply, Socket};
 
 handle_call({stats, {Args}}, _From, Socket) ->
-    Reply = send_generic_cmd(Socket, iolist_to_binary([<<"stats ">>, Args])),
+    Reply = send_stats_cmd(Socket, iolist_to_binary([<<"stats ">>, Args])),
     {reply, Reply, Socket};
 
 handle_call({version}, _From, Socket) ->
@@ -364,6 +364,13 @@ terminate(_Reason, Socket) ->
     ok.
 
 %% @private
+%% @doc send_stats_cmd/2 function for stats get
+send_stats_cmd(Socket, Cmd) ->
+    gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
+    Reply = recv_stats(),
+    Reply.
+
+%% @private
 %% @doc send_generic_cmd/2 function for simple informational and deletion commands
 send_generic_cmd(Socket, Cmd) ->
     gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
@@ -393,6 +400,19 @@ send_gets_cmd(Socket, Cmd) ->
 	Reply.
 
 %% @private
+
+
+%% {active, once} is overkill here, but don't worry to much on optimize this method
+recv_stats() ->
+    receive
+        {tcp, Socket, <<"END\r\n">>} ->
+            inet:setopts(Socket, ?TCP_OPTS_LINE),
+            [];
+        {tcp, Socket, Data} ->
+  			{ok, [Field, Value], []} = io_lib:fread("STAT ~s ~s \r\n", binary_to_list(Data)),
+            inet:setopts(Socket, ?TCP_OPTS_LINE),  
+            [{Field, Value} | recv_stats()]
+   end.
 %% @doc receive function for simple responses (not containing VALUEs)
 recv_simple_reply() ->
 	receive
