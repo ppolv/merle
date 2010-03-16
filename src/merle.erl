@@ -38,7 +38,6 @@
 -author("Joe Williams <joe@joetify.com>").
 -version("Version: 0.3").
 
--define(SERVER, ?MODULE).
 -define(TIMEOUT, 5000).
 -define(RANDOM_MAX, 65535).
 -define(DEFAULT_HOST, "localhost").
@@ -52,9 +51,9 @@
 
 %% gen_server API
 -export([
-    stats/0, stats/1, version/0, getkey/1, delete/2, set/4, add/4, replace/2,
-    replace/4, cas/5, set/2, flushall/0, flushall/1, verbosity/1, add/2,
-    cas/3, getskey/1, connect/0, connect/2, delete/1, disconnect/0
+    stats/1, stats/2, version/1, getkey/2, delete/3, set/5, add/5, replace/3,
+    replace/5, cas/6, set/3, flushall/1, flushall/2, verbosity/2, add/3,
+    cas/4, getskey/2, connect/0, connect/2, delete/2, disconnect/1
 ]).
 
 %% gen_server callbacks
@@ -64,72 +63,72 @@
 ]).
 
 %% @doc retrieve memcached stats
-stats() ->
-	gen_server2:call(?SERVER, {stats}).
+stats(Ref) ->
+	gen_server2:call(Ref, {stats}).
 
 %% @doc retrieve memcached stats based on args
-stats(Args) when is_atom(Args)->
-	stats(atom_to_list(Args));
-stats(Args) ->
-	gen_server2:call(?SERVER, {stats, {Args}}).
+stats(Ref, Args) when is_atom(Args)->
+	stats(Ref, atom_to_list(Args));
+stats(Ref, Args) ->
+	gen_server2:call(Ref, {stats, {Args}}).
 
 %% @doc retrieve memcached version
-version() ->
-	gen_server2:call(?SERVER, {version}).
+version(Ref) ->
+	gen_server2:call(Ref, {version}).
 
 %% @doc set the verbosity level of the logging output
-verbosity(Args) when is_integer(Args) ->
-	verbosity(integer_to_list(Args));
-verbosity(Args)->
-	case gen_server2:call(?SERVER, {verbosity, {Args}}) of
+verbosity(Ref, Args) when is_integer(Args) ->
+	verbosity(Ref, integer_to_list(Args));
+verbosity(Ref, Args)->
+	case gen_server2:call(Ref, {verbosity, {Args}}) of
 		["OK"] -> ok;
 		[X] -> X
 	end.
 
 %% @doc invalidate all existing items immediately
-flushall() ->
-	case gen_server2:call(?SERVER, {flushall}) of
+flushall(Ref) ->
+	case gen_server2:call(Ref, {flushall}) of
 		["OK"] -> ok;
 		[X] -> X
 	end.
 
 %% @doc invalidate all existing items based on the expire time argument
-flushall(Delay) when is_integer(Delay) ->
-	flushall(integer_to_list(Delay));
-flushall(Delay) ->
-	case gen_server2:call(?SERVER, {flushall, {Delay}}) of
+flushall(Ref, Delay) when is_integer(Delay) ->
+	flushall(Ref, integer_to_list(Delay));
+flushall(Ref, Delay) ->
+	case gen_server2:call(Ref, {flushall, {Delay}}) of
 		["OK"] -> ok;
 		[X] -> X
 	end.
 
 %% @doc retrieve value based off of key
-getkey(Key) when is_atom(Key) ->
-	getkey(atom_to_list(Key));
-getkey(Key) ->
-	case gen_server2:call(?SERVER, {getkey,{Key}}) of
+getkey(Ref, Key) when is_atom(Key) ->
+	getkey(Ref, atom_to_list(Key));
+getkey(Ref, Key) ->
+	case gen_server2:call(Ref, {getkey,{Key}}) of
 	    ["END"] -> undefined;
 	    [X] -> X
 	end.
 
 %% @doc retrieve value based off of key for use with cas
-getskey(Key) when is_atom(Key) ->
-	getskey(atom_to_list(Key));
-getskey(Key) ->
-	case gen_server2:call(?SERVER, {getskey,{Key}}) of
+getskey(Ref, Key) when is_atom(Key) ->
+	getskey(Ref, atom_to_list(Key));
+getskey(Ref, Key) ->
+	case gen_server2:call(Ref, {getskey,{Key}}) of
 	    ["END"] -> undefined;
 	    [X] -> X
 	end.
 
 %% @doc delete a key
-delete(Key) ->
-	delete(Key, "0").
+delete(Ref, Key) ->
+	delete(Ref, Key, "0").
 
-delete(Key, Time) when is_atom(Key) ->
-	delete(atom_to_list(Key), Time);
-delete(Key, Time) when is_integer(Time) ->
-	delete(Key, integer_to_list(Time));
-delete(Key, Time) ->
-	case gen_server2:call(?SERVER, {delete, {Key, Time}}) of
+delete(Ref, Key, Time) when is_atom(Key) ->
+	delete(Ref, atom_to_list(Key), Time);
+delete(Ref, Key, Time) when is_integer(Time) ->
+	delete(Ref, Key, integer_to_list(Time));
+delete(Ref, Key, Time) ->
+	case gen_server2:call(Ref, {delete, {Key, Time}}) of
 		["DELETED"] -> ok;
 		["NOT_FOUND"] -> not_found;
 		[X] -> X
@@ -158,74 +157,74 @@ delete(Key, Time) ->
 %% *Value* is the value you want to store.
 
 %% @doc Store a key/value pair.
-set(Key, Value) ->
+set(Ref, Key, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
-    set(Key, integer_to_list(Flag), "0", Value).
+    set(Ref, Key, integer_to_list(Flag), "0", Value).
 
-set(Key, Flag, ExpTime, Value) when is_atom(Key) ->
-	set(atom_to_list(Key), Flag, ExpTime, Value);
-set(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
-    set(Key, integer_to_list(Flag), ExpTime, Value);
-set(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
-    set(Key, Flag, integer_to_list(ExpTime), Value);
-set(Key, Flag, ExpTime, Value) ->
-	case gen_server2:call(?SERVER, {set, {Key, Flag, ExpTime, Value}}) of
+set(Ref, Key, Flag, ExpTime, Value) when is_atom(Key) ->
+	set(Ref, atom_to_list(Key), Flag, ExpTime, Value);
+set(Ref, Key, Flag, ExpTime, Value) when is_integer(Flag) ->
+    set(Ref, Key, integer_to_list(Flag), ExpTime, Value);
+set(Ref, Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
+    set(Ref, Key, Flag, integer_to_list(ExpTime), Value);
+set(Ref, Key, Flag, ExpTime, Value) ->
+	case gen_server2:call(Ref, {set, {Key, Flag, ExpTime, Value}}) of
 	    ["STORED"] -> ok;
 	    ["NOT_STORED"] -> not_stored;
 	    [X] -> X
 	end.
 
 %% @doc Store a key/value pair if it doesn't already exist.
-add(Key, Value) ->
+add(Ref, Key, Value) ->
 	Flag = random:uniform(?RANDOM_MAX),
-	add(Key, integer_to_list(Flag), "0", Value).
+	add(Ref, Key, integer_to_list(Flag), "0", Value).
 
-add(Key, Flag, ExpTime, Value) when is_atom(Key) ->
-	add(atom_to_list(Key), Flag, ExpTime, Value);
-add(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
-    add(Key, integer_to_list(Flag), ExpTime, Value);
-add(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
-    add(Key, Flag, integer_to_list(ExpTime), Value);
-add(Key, Flag, ExpTime, Value) ->
-	case gen_server2:call(?SERVER, {add, {Key, Flag, ExpTime, Value}}) of
+add(Ref, Key, Flag, ExpTime, Value) when is_atom(Key) ->
+	add(Ref, atom_to_list(Key), Flag, ExpTime, Value);
+add(Ref, Key, Flag, ExpTime, Value) when is_integer(Flag) ->
+    add(Ref, Key, integer_to_list(Flag), ExpTime, Value);
+add(Ref, Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
+    add(Ref, Key, Flag, integer_to_list(ExpTime), Value);
+add(Ref, Key, Flag, ExpTime, Value) ->
+	case gen_server2:call(Ref, {add, {Key, Flag, ExpTime, Value}}) of
 	    ["STORED"] -> ok;
 	    ["NOT_STORED"] -> not_stored;
 	    [X] -> X
 	end.
 
 %% @doc Replace an existing key/value pair.
-replace(Key, Value) ->
+replace(Ref, Key, Value) ->
 	Flag = random:uniform(?RANDOM_MAX),
-	replace(Key, integer_to_list(Flag), "0", Value).
+	replace(Ref, Key, integer_to_list(Flag), "0", Value).
 
-replace(Key, Flag, ExpTime, Value) when is_atom(Key) ->
-	replace(atom_to_list(Key), Flag, ExpTime, Value);
-replace(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
-    replace(Key, integer_to_list(Flag), ExpTime, Value);
-replace(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
-    replace(Key, Flag, integer_to_list(ExpTime), Value);
-replace(Key, Flag, ExpTime, Value) ->
-	case gen_server2:call(?SERVER, {replace, {Key, Flag, ExpTime, Value}}) of
+replace(Ref, Key, Flag, ExpTime, Value) when is_atom(Key) ->
+	replace(Ref, atom_to_list(Key), Flag, ExpTime, Value);
+replace(Ref, Key, Flag, ExpTime, Value) when is_integer(Flag) ->
+    replace(Ref, Key, integer_to_list(Flag), ExpTime, Value);
+replace(Ref, Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
+    replace(Ref, Key, Flag, integer_to_list(ExpTime), Value);
+replace(Ref, Key, Flag, ExpTime, Value) ->
+	case gen_server2:call(Ref, {replace, {Key, Flag, ExpTime, Value}}) of
 	    ["STORED"] -> ok;
 	    ["NOT_STORED"] -> not_stored;
 	    [X] -> X
 	end.
 
 %% @doc Store a key/value pair if possible.
-cas(Key, CasUniq, Value) ->
+cas(Ref, Key, CasUniq, Value) ->
 	Flag = random:uniform(?RANDOM_MAX),
-	cas(Key, integer_to_list(Flag), "0", CasUniq, Value).
+	cas(Ref, Key, integer_to_list(Flag), "0", CasUniq, Value).
 
-cas(Key, Flag, ExpTime, CasUniq, Value) when is_atom(Key) ->
-	cas(atom_to_list(Key), Flag, ExpTime, CasUniq, Value);
-cas(Key, Flag, ExpTime, CasUniq, Value) when is_integer(Flag) ->
-    cas(Key, integer_to_list(Flag), ExpTime, CasUniq, Value);
-cas(Key, Flag, ExpTime, CasUniq, Value) when is_integer(ExpTime) ->
-    cas(Key, Flag, integer_to_list(ExpTime), CasUniq, Value);
-cas(Key, Flag, ExpTime, CasUniq, Value) when is_integer(CasUniq) ->
-    cas(Key, Flag, ExpTime, integer_to_list(CasUniq), Value);
-cas(Key, Flag, ExpTime, CasUniq, Value) ->
-	case gen_server2:call(?SERVER, {cas, {Key, Flag, ExpTime, CasUniq, Value}}) of
+cas(Ref, Key, Flag, ExpTime, CasUniq, Value) when is_atom(Key) ->
+	cas(Ref, atom_to_list(Key), Flag, ExpTime, CasUniq, Value);
+cas(Ref, Key, Flag, ExpTime, CasUniq, Value) when is_integer(Flag) ->
+    cas(Ref, Key, integer_to_list(Flag), ExpTime, CasUniq, Value);
+cas(Ref, Key, Flag, ExpTime, CasUniq, Value) when is_integer(ExpTime) ->
+    cas(Ref, Key, Flag, integer_to_list(ExpTime), CasUniq, Value);
+cas(Ref, Key, Flag, ExpTime, CasUniq, Value) when is_integer(CasUniq) ->
+    cas(Ref, Key, Flag, ExpTime, integer_to_list(CasUniq), Value);
+cas(Ref, Key, Flag, ExpTime, CasUniq, Value) ->
+	case gen_server2:call(Ref, {cas, {Key, Flag, ExpTime, CasUniq, Value}}) of
 	    ["STORED"] -> ok;
 	    ["NOT_STORED"] -> not_stored;
 	    [X] -> X
@@ -240,13 +239,13 @@ connect(Host, Port) ->
 	start_link(Host, Port).
 
 %% @doc disconnect from memcached
-disconnect() ->
-	gen_server2:call(?SERVER, {stop}),
+disconnect(Ref) ->
+	gen_server2:call(Ref, {stop}),
 	ok.
 
 %% @private
 start_link(Host, Port) ->
-    gen_server2:start_link({local, ?SERVER}, ?MODULE, [Host, Port], []).
+    gen_server2:start_link(?MODULE, [Host, Port], []).
 
 %% @private
 init([Host, Port]) ->
