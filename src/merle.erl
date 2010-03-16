@@ -345,6 +345,10 @@ handle_call({cas, {Key, Flag, ExpTime, CasUniq, Value}}, _From, Socket) ->
 handle_cast(_Msg, State) -> {noreply, State}.
 
 %% @private
+handle_info({tcp_closed, Socket}, Socket) -> 
+    {stop, {error, tcp_closed}, Socket};
+handle_info({tcp_error, Socket, Reason}, Socket) -> 
+    {stop, {error, {tcp_error, Reason}}, Socket};
 handle_info(_Info, State) -> {noreply, State}.
 
 %% @private
