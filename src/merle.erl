@@ -80,44 +80,29 @@ version(Ref) ->
 verbosity(Ref, Args) when is_integer(Args) ->
 	verbosity(Ref, integer_to_list(Args));
 verbosity(Ref, Args)->
-	case gen_server2:call(Ref, {verbosity, {Args}}) of
-		["OK"] -> ok;
-		[X] -> X
-	end.
+	gen_server2:call(Ref, {verbosity, {Args}}).
 
 %% @doc invalidate all existing items immediately
 flushall(Ref) ->
-	case gen_server2:call(Ref, {flushall}) of
-		["OK"] -> ok;
-		[X] -> X
-	end.
+	gen_server2:call(Ref, {flushall}).
 
 %% @doc invalidate all existing items based on the expire time argument
 flushall(Ref, Delay) when is_integer(Delay) ->
 	flushall(Ref, integer_to_list(Delay));
 flushall(Ref, Delay) ->
-	case gen_server2:call(Ref, {flushall, {Delay}}) of
-		["OK"] -> ok;
-		[X] -> X
-	end.
+	gen_server2:call(Ref, {flushall, {Delay}}).
 
 %% @doc retrieve value based off of key
 getkey(Ref, Key) when is_atom(Key) ->
 	getkey(Ref, atom_to_list(Key));
 getkey(Ref, Key) ->
-	case gen_server2:call(Ref, {getkey,{Key}}) of
-	    ["END"] -> undefined;
-	    [X] -> X
-	end.
+	gen_server2:call(Ref, {getkey,{Key}}).
 
 %% @doc retrieve value based off of key for use with cas
 getskey(Ref, Key) when is_atom(Key) ->
 	getskey(Ref, atom_to_list(Key));
 getskey(Ref, Key) ->
-	case gen_server2:call(Ref, {getskey,{Key}}) of
-	    ["END"] -> undefined;
-	    [X] -> X
-	end.
+	gen_server2:call(Ref, {getskey,{Key}}).
 
 %% @doc delete a key
 delete(Ref, Key) ->
@@ -128,11 +113,7 @@ delete(Ref, Key, Time) when is_atom(Key) ->
 delete(Ref, Key, Time) when is_integer(Time) ->
 	delete(Ref, Key, integer_to_list(Time));
 delete(Ref, Key, Time) ->
-	case gen_server2:call(Ref, {delete, {Key, Time}}) of
-		["DELETED"] -> ok;
-		["NOT_FOUND"] -> not_found;
-		[X] -> X
-	end.
+	gen_server2:call(Ref, {delete, {Key, Time}}).
 
 %% Time is the amount of time in seconds
 %% the client wishes the server to refuse
@@ -168,11 +149,7 @@ set(Ref, Key, Flag, ExpTime, Value) when is_integer(Flag) ->
 set(Ref, Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
     set(Ref, Key, Flag, integer_to_list(ExpTime), Value);
 set(Ref, Key, Flag, ExpTime, Value) ->
-	case gen_server2:call(Ref, {set, {Key, Flag, ExpTime, Value}}) of
-	    ["STORED"] -> ok;
-	    ["NOT_STORED"] -> not_stored;
-	    [X] -> X
-	end.
+	gen_server2:call(Ref, {set, {Key, Flag, ExpTime, Value}}).
 
 %% @doc Store a key/value pair if it doesn't already exist.
 add(Ref, Key, Value) ->
@@ -186,11 +163,7 @@ add(Ref, Key, Flag, ExpTime, Value) when is_integer(Flag) ->
 add(Ref, Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
     add(Ref, Key, Flag, integer_to_list(ExpTime), Value);
 add(Ref, Key, Flag, ExpTime, Value) ->
-	case gen_server2:call(Ref, {add, {Key, Flag, ExpTime, Value}}) of
-	    ["STORED"] -> ok;
-	    ["NOT_STORED"] -> not_stored;
-	    [X] -> X
-	end.
+	gen_server2:call(Ref, {add, {Key, Flag, ExpTime, Value}}).
 
 %% @doc Replace an existing key/value pair.
 replace(Ref, Key, Value) ->
@@ -204,11 +177,7 @@ replace(Ref, Key, Flag, ExpTime, Value) when is_integer(Flag) ->
 replace(Ref, Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
     replace(Ref, Key, Flag, integer_to_list(ExpTime), Value);
 replace(Ref, Key, Flag, ExpTime, Value) ->
-	case gen_server2:call(Ref, {replace, {Key, Flag, ExpTime, Value}}) of
-	    ["STORED"] -> ok;
-	    ["NOT_STORED"] -> not_stored;
-	    [X] -> X
-	end.
+	gen_server2:call(Ref, {replace, {Key, Flag, ExpTime, Value}}).
 
 %% @doc Store a key/value pair if possible.
 cas(Ref, Key, CasUniq, Value) ->
@@ -224,11 +193,7 @@ cas(Ref, Key, Flag, ExpTime, CasUniq, Value) when is_integer(ExpTime) ->
 cas(Ref, Key, Flag, ExpTime, CasUniq, Value) when is_integer(CasUniq) ->
     cas(Ref, Key, Flag, ExpTime, integer_to_list(CasUniq), Value);
 cas(Ref, Key, Flag, ExpTime, CasUniq, Value) ->
-	case gen_server2:call(Ref, {cas, {Key, Flag, ExpTime, CasUniq, Value}}) of
-	    ["STORED"] -> ok;
-	    ["NOT_STORED"] -> not_stored;
-	    [X] -> X
-	end.
+	gen_server2:call(Ref, {cas, {Key, Flag, ExpTime, CasUniq, Value}}).
 
 %% @doc connect to memcached with defaults
 connect() ->
@@ -403,6 +368,11 @@ send_gets_cmd(Socket, Cmd) ->
 
 %% {active, once} is overkill here, but don't worry to much on optimize this method
 recv_stats() ->
+	case do_recv_stats() of
+		timeout -> {error, timeout};
+		Stats -> {ok, Stats}
+	end.
+do_recv_stats() ->
     receive
         {tcp, Socket, <<"END\r\n">>} ->
             inet:setopts(Socket, ?TCP_OPTS_LINE),
@@ -410,7 +380,7 @@ recv_stats() ->
         {tcp, Socket, Data} ->
   			{ok, [Field, Value], []} = io_lib:fread("STAT ~s ~s \r\n", binary_to_list(Data)),
             inet:setopts(Socket, ?TCP_OPTS_LINE),  
-            [{Field, Value} | recv_stats()]
+            [{Field, Value} | do_recv_stats()]
      after ?TIMEOUT ->
 	timeout
    end.
@@ -419,11 +389,23 @@ recv_simple_reply() ->
 	receive
 	  	{tcp, Socket, Data} ->
         	inet:setopts(Socket, ?TCP_OPTS_LINE),
-        	string:tokens(binary_to_list(Data), "\r\n");
+        	parse_simple_response_line(Data); 
         {error, closed} ->
   			connection_closed
-    after ?TIMEOUT -> timeout
+    after ?TIMEOUT -> {error, timeout}
     end.
+parse_simple_response_line(<<"OK", _B/binary>>) -> ok;
+parse_simple_response_line(<<"ERROR", _B/binary>> =L ) -> {error, L};
+parse_simple_response_line(<<"CLIENT_ERROR", _B/binary>> =L ) -> {error, L};
+parse_simple_response_line(<<"SERVER_ERROR", _B/binary>> =L) -> {error, L};
+parse_simple_response_line(<<"STORED", _B/binary>>) -> ok;
+parse_simple_response_line(<<"NOT_STORED", _B/binary>> ) -> ok;
+parse_simple_response_line(<<"EXISTS", _B/binary>> ) -> {error, exists};
+parse_simple_response_line(<<"NOT_FOUND", _B/binary>> ) -> {error, not_found};
+parse_simple_response_line(<<"DELETED", _B/binary>> ) -> ok;
+parse_simple_response_line(<<"VERSION", _B/binary>> =L) -> {ok, L};
+parse_simple_response_line(Line) -> {error, {unknown_response, Line}}.
+
 
 %% @private
 %% @doc receive function for respones containing VALUEs
@@ -432,17 +414,17 @@ recv_complex_get_reply(Socket) ->
 		%% For receiving get responses where the key does not exist
 		{tcp, Socket, <<"END\r\n">>} -> 
             inet:setopts(Socket, ?TCP_OPTS_LINE),
-            ["END"];
+            {error, not_found};
 		%% For receiving get responses containing data
 		{tcp, Socket, Data} ->
 			%% Reply format <<"VALUE SOMEKEY FLAG BYTES\r\nSOMEVALUE\r\nEND\r\n">>
   			Parse = io_lib:fread("~s ~s ~u ~u\r\n", binary_to_list(Data)),
   			{ok,[_,_,_,Bytes], []} = Parse,
   			Reply = get_data(Socket, Bytes),
-  			[Reply];
+  			{ok, Reply};
   		{error, closed} ->
-  			connection_closed
-    after ?TIMEOUT -> timeout
+  			{error, connection_closed}
+    after ?TIMEOUT -> {error, timeout}
     end.
 
 %% @private
@@ -452,17 +434,17 @@ recv_complex_gets_reply(Socket) ->
 		%% For receiving get responses where the key does not exist
 		{tcp, Socket, <<"END\r\n">>} -> 
         inet:setopts(Socket, ?TCP_OPTS_LINE),
-        ["END"];
+        {error, not_found};
 		%% For receiving get responses containing data
 		{tcp, Socket, Data} ->
 			%% Reply format <<"VALUE SOMEKEY FLAG BYTES\r\nSOMEVALUE\r\nEND\r\n">>
   			Parse = io_lib:fread("~s ~s ~u ~u ~u\r\n", binary_to_list(Data)),
   			{ok,[_,_,_,Bytes,CasUniq], []} = Parse,
   			Reply = get_data(Socket, Bytes),
-  			[CasUniq, Reply];
+  			{ok, [CasUniq, Reply]};
   		{error, closed} ->
-  			connection_closed
-    after ?TIMEOUT -> timeout
+  			{error, connection_closed}
+    after ?TIMEOUT -> {error, timeout}
     end.
 
 %% @private
