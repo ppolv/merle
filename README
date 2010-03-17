@@ -1,5 +1,28 @@
 merle : An erlang based memcached client.
 
+Modified by Pablo Polvorin from Joe Williams original at
+http://github.com/joewilliams/merle/
+
+Usage:
+
+%2 memcached instances, pool of 5 connections to each.
+merle_sup:start_link([ ["localhost", 11211], 
+			["localhost", 11212 ]], 5).
+
+S = merle_cluster_dynamic:get_server("SomeClusteringKey"),
+P = local_pg2:get_closest_pid(S),
+merle:getkey(P, "key").
+
+
+If a memcached node goes down, connections to it will be retried
+each 15".  *Cluster keys aren't re-hashed*, they simple fail while the
+cache node is down.  
+The cluster key may be different than the search key.
+It isn't possible to add/remove memcached nodes on the fly, no 
+consistent hashing mechanism is used.
+-------------------------------------------------------------------
+
+
 Version : 0.3
 
 Author : Joe Williams <joe@joetify.com>
