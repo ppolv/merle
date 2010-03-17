@@ -411,6 +411,8 @@ recv_stats() ->
   			{ok, [Field, Value], []} = io_lib:fread("STAT ~s ~s \r\n", binary_to_list(Data)),
             inet:setopts(Socket, ?TCP_OPTS_LINE),  
             [{Field, Value} | recv_stats()]
+     after ?TIMEOUT ->
+	timeout
    end.
 %% @doc receive function for simple responses (not containing VALUEs)
 recv_simple_reply() ->
