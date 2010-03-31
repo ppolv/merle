@@ -42,8 +42,10 @@
 -define(RANDOM_MAX, 65535).
 -define(DEFAULT_HOST, "localhost").
 -define(DEFAULT_PORT, 11211).
+-define(TCP_OPTS_ACTIVE, [
+	binary, {packet, line}, {nodelay, true}, {reuseaddr, true}, {active, once}]).
 -define(TCP_OPTS_LINE, [
-    binary, {packet, line}, {nodelay, true},{reuseaddr, true}, {active, once}
+    binary, {packet, line}, {nodelay, true},{reuseaddr, true}, {active, false}
 ]).
 -define(TCP_OPTS_RAW, [
     binary, {packet, raw}, {nodelay, true},{reuseaddr, true}, {active, false}
@@ -51,7 +53,7 @@
 
 %% gen_server API
 -export([
-    stats/1, stats/2, version/1, getkey/2, delete/3, set/5, add/5, replace/3,
+    stats/1, stats/2, version/1, getkey/2, getkeys/2, delete/3, set/5, add/5, replace/3,
     replace/5, cas/6, set/3, flushall/1, flushall/2, verbosity/2, add/3,
     cas/4, getskey/2, connect/0, connect/2, delete/2, disconnect/1
 ]).
@@ -97,6 +99,18 @@ getkey(Ref, Key) when is_atom(Key) ->
 	getkey(Ref, atom_to_list(Key));
 getkey(Ref, Key) ->
 	gen_server2:call(Ref, {getkey,{Key}}).
+
+%% @doc retrieve multiple values based on keys
+getkeys(Ref, Keys) when is_list(Keys) ->
+	StringKeys = lists:map(fun
+			(A) when is_atom(A) -> 
+				atom_to_list(A);
+			(S) ->
+				S
+			end, Keys),
+	
+	gen_server2:call(Ref, {getkeys,{join_by(StringKeys, " ")}}).
+
 
 %% @doc retrieve value based off of key for use with cas
 getskey(Ref, Key) when is_atom(Key) ->
@@ -214,7 +228,7 @@ start_link(Host, Port) ->
 
 %% @private
 init([Host, Port]) ->
-    gen_tcp:connect(Host, Port, ?TCP_OPTS_LINE).
+    gen_tcp:connect(Host, Port, ?TCP_OPTS_ACTIVE).
 
 handle_call({stop}, _From, Socket) ->
     {stop, requested_disconnect, Socket};
@@ -245,6 +259,9 @@ handle_call({flushall, {Delay}}, _From, Socket) ->
 
 handle_call({getkey, {Key}}, _From, Socket) ->
     Reply = send_get_cmd(Socket, iolist_to_binary([<<"get ">>, Key])),
+    {reply, Reply, Socket};
+handle_call({getkeys, {Keys}}, _From, Socket) ->
+    Reply = send_multi_get_cmd(Socket, iolist_to_binary([<<"get ">>, Keys])),
     {reply, Reply, Socket};
 
 handle_call({getskey, {Key}}, _From, Socket) ->
@@ -352,10 +369,26 @@ send_storage_cmd(Socket, Cmd, Value) ->
 %% @private
 %% @doc send_get_cmd/2 function for retreival commands
 send_get_cmd(Socket, Cmd) ->
+    inet:setopts(Socket, ?TCP_OPTS_LINE),
     gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
-	Reply = recv_complex_get_reply(Socket),
-	Reply.
+    Reply = case recv_complex_get_reply(Socket) of
+		[{_, Value}] -> {ok, Value};
+		[] -> {error, not_found};
+		{error, Error} -> {error, Error}
+    	    end,
+    inet:setopts(Socket, ?TCP_OPTS_ACTIVE),
+    Reply.
 
+send_multi_get_cmd(Socket, Cmd) ->
+    inet:setopts(Socket, ?TCP_OPTS_LINE),
+    gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
+    Reply = case recv_complex_get_reply(Socket) of
+		{error, Error} -> {error, Error};
+		R -> {ok, R}
+	    end,
+    inet:setopts(Socket, ?TCP_OPTS_ACTIVE),
+    Reply.
+	
 %% @private
 %% @doc send_gets_cmd/2 function for cas retreival commands
 send_gets_cmd(Socket, Cmd) ->
@@ -375,11 +408,11 @@ recv_stats() ->
 do_recv_stats() ->
     receive
         {tcp, Socket, <<"END\r\n">>} ->
-            inet:setopts(Socket, ?TCP_OPTS_LINE),
+            inet:setopts(Socket, ?TCP_OPTS_ACTIVE),
             [];
         {tcp, Socket, Data} ->
   			{ok, [Field, Value], []} = io_lib:fread("STAT ~s ~s \r\n", binary_to_list(Data)),
-            inet:setopts(Socket, ?TCP_OPTS_LINE),  
+            inet:setopts(Socket, ?TCP_OPTS_ACTIVE),  
             [{Field, Value} | do_recv_stats()]
      after ?TIMEOUT ->
 	timeout
@@ -388,7 +421,7 @@ do_recv_stats() ->
 recv_simple_reply() ->
 	receive
 	  	{tcp, Socket, Data} ->
-        	inet:setopts(Socket, ?TCP_OPTS_LINE),
+        	inet:setopts(Socket, ?TCP_OPTS_ACTIVE),
         	parse_simple_response_line(Data); 
         {error, closed} ->
   			connection_closed
@@ -410,22 +443,27 @@ parse_simple_response_line(Line) -> {error, {unknown_response, Line}}.
 %% @private
 %% @doc receive function for respones containing VALUEs
 recv_complex_get_reply(Socket) ->
-	receive
-		%% For receiving get responses where the key does not exist
-		{tcp, Socket, <<"END\r\n">>} -> 
-            inet:setopts(Socket, ?TCP_OPTS_LINE),
-            {error, not_found};
-		%% For receiving get responses containing data
-		{tcp, Socket, Data} ->
-			%% Reply format <<"VALUE SOMEKEY FLAG BYTES\r\nSOMEVALUE\r\nEND\r\n">>
-  			Parse = io_lib:fread("~s ~s ~u ~u\r\n", binary_to_list(Data)),
-  			{ok,[_,_,_,Bytes], []} = Parse,
-  			Reply = get_data(Socket, Bytes),
-  			{ok, Reply};
-  		{error, closed} ->
-  			{error, connection_closed}
-    after ?TIMEOUT -> {error, timeout}
-    end.
+	recv_complex_get_reply(Socket, []).
+recv_complex_get_reply(Socket, Accum) ->
+	case gen_tcp:recv(Socket, 0, ?TIMEOUT) of
+		{ok, <<"END\r\n">>} -> 
+			Accum;
+		{ok, Data} ->
+  			{ok,[_,Key,_,Bytes], []} = 
+				io_lib:fread("~s ~s ~u ~u\r\n", binary_to_list(Data)),
+            		inet:setopts(Socket, ?TCP_OPTS_RAW),
+			case  gen_tcp:recv(Socket, Bytes+2, ?TIMEOUT) of
+				{ok, <<Value:Bytes/binary, "\r\n">>} -> 
+					inet:setopts(Socket, ?TCP_OPTS_LINE),
+					recv_complex_get_reply(Socket, 
+						[{Key, binary_to_term(Value)}|Accum]);
+				{error, Error} ->
+					{error, Error}
+			end;
+		{error, Error} ->
+			{error, Error}
+	end.
+		
 
 %% @private
 %% @doc receive function for cas responses containing VALUEs
@@ -453,5 +491,14 @@ get_data(Socket, Bytes) ->
     inet:setopts(Socket, ?TCP_OPTS_RAW),
     {ok, Data} = gen_tcp:recv(Socket, Bytes+7, ?TIMEOUT),
     <<Value:Bytes/binary, "\r\nEND\r\n">> = Data,
-    inet:setopts(Socket, ?TCP_OPTS_LINE),
+    inet:setopts(Socket, ?TCP_OPTS_ACTIVE),
     binary_to_term(Value).
+
+%% @private
+join_by([], _) ->
+	[];
+join_by([A|[]], _) ->
+	[A];
+join_by([A|Rest], J) ->
+	[A, J | join_by(Rest, J)].
+
