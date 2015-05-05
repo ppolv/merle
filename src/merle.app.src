@@ -1,0 +1,12 @@
+%%-*- mode: erlang -*V
+{application, merle,
+    [
+    {description, "Memcached client"},
+    {vsn, "0.1.0"},
+    {registered, [merle]},
+    {applications, [
+        kernel,
+        stdlib
+           ]},
+     {env, []}
+   ]}.
